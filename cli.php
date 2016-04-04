@@ -14,6 +14,13 @@ function is_win() {
     return PHP_OS === "WINNT";
 }
 
+function tasklist() {
+    if(!is_win()) {
+        throw new \RuntimeException("only support win");
+    }
+    return array_map('str_getcsv', explode("\n", trim(`tasklist /FO csv /NH`)));
+}
+
 function clear() {
     if(is_win()) {
         echo str_repeat(PHP_EOL, 100);
@@ -45,7 +52,7 @@ function endwith($line, $end) {
  * @param string $err
  * @return bool 只代表拿到锁并且进行处理,不表示是否处理成功
  * @author xiaofeng
- * fixme 加上sleep 用多个进程进行测试
+ * 对程序读写都要在handler中处理
  */
 function flockhandle($file, $mode = "w", callable $handler, &$err = "") {
     $f = fopen($file, $mode);
@@ -61,11 +68,13 @@ function flockhandle($file, $mode = "w", callable $handler, &$err = "") {
         } catch (\Exception $e) {
             $err = '$handler($f) exception' . $e->getMessage();
         } finally {
+            fflush($f);
             flock($f, LOCK_UN);
             fclose($f);
         }
         return true;
     } else {
+        $err = "flock($f, LOCK_EX | LOCK_NB) fail";
         fclose($f);
         return false;
     }
