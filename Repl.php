@@ -14,7 +14,12 @@ error_reporting(E_ALL);
  * Class Repl
  * @package xiaofeng\cli
  * @author xiaofeng
- * fixme 加入各种f*函数的错误检测
+ * FIXME 加入各种f*函数的错误检测
+ * TODO: 重构环境的实现
+ * 1. 当前采用php文件存储实现环境, 使用exec_file执行每一条命令
+ * 2. 重构为用内存字符串实现环境, 全部使用exec_code执行每一条命令
+ * 3. 代码是否加入环境采用文件指针操作
+ * 4. 重构为字符串操作
  */
 class Repl {
     const OP_IGNORE         = 0;        // 接受当前行输入，无操作
@@ -96,41 +101,6 @@ class Repl {
         }
     }
 
-    // php需要加入环境变量
-    private function execute() {
-        // ob_start();
-        // $stdout = system("php $envFile"); 或者 $stdout = fgets(popen("php $envFile", "r"));
-        // 均无法检测文件是否执行错误错误
-        // $stdout = trim(ob_get_clean(), PHP_EOL);
-        // 检索源码发现php中运行外部程序的函数,实际上都是使用了popen函数
-        // http://lxr.php.net/xref/PHP_7_0/ext/standard/exec.h
-        // http://xiezhenye.com/2012/09/php-中运行外部程序的一个潜在风险.html
-        // 利用vfork 来启动一个shell子进程来执行命令。
-        // http://coolshell.cn/articles/12103.html
-        // 但是popen并没有在子进程中关闭原有的进程的文件描述符。
-        // 这样子进程也会占有这些文件描述符，即使它们并不需要，如果子进程长时间运行，还会导致这些资源没法释放
-        // so 最终采取proc_open方式定制执行
-        // http://php.net/manual/zh/function.proc-open.php
-        $descriptorspec  = [
-            /*stdin*/ /* 0 => ["pipe", "r"],*/
-            /*stdout*/   1 => ["pipe", "w"],
-            /*stderr*/   2 => ["pipe", "w"],
-            /*others .... */
-        ];
-        // "bypass_shell" in Windows allows you to pass a command of length around ~32767 characters.
-        // If you do not use it, your limit is around ~8191 characters only.
-        // See https://support.microsoft.com/en-us/kb/830473.
-        $other_options = ["suppress_errors" => true, /*"bypass_shell" => true,*/];
-        $evalProcess = proc_open("php {$this->envf}", $descriptorspec, $pipes, null, null, $other_options);
-        $stdout = stream_get_contents($pipes[1]);
-        $strerr = stream_get_contents($pipes[2]);
-        // [!!!] 必须先关闭pipe再关闭子进程
-        foreach($pipes as $pipe) fclose($pipe);
-        proc_close($evalProcess);
-
-        return [$stdout, $strerr];
-    }
-
     // fixme 用 exit die 之类正则来结束, 否则把exit写入环境就bug了
     private function op_exit() {
         return self::OP_BREAK;
@@ -184,6 +154,15 @@ class Repl {
         return self::OP_IGNORE;
     }
 
+    // 无上下文环境执行单条命令，无stderror则输出
+    private function evaluate($cmd) {
+        list($cmdout, $cmderr)                      // 去除命令结尾的分号
+            = exec_code("var_dump(" . trim($cmd, "\t\n\r\0\x0b;") . ");");
+        if(!trim($cmderr) && trim($cmdout)) {
+            echo $cmdout;
+        }
+    }
+
     public function run() {
         $this->init();
 
@@ -216,7 +195,12 @@ class Repl {
             }                                           // 否则全部追加到command
             $pos = ftell($this->envfd);                 // 记录执行前文件指针位置
             fwrite($this->envfd, $this->command);       // 写入命令道环境执行
-            list($stdout, $strerr) = $this->execute();  // execute
+
+            $this->evaluate($this->command);            // 执行单行语句
+                                                        // 用于计算1+1之类表达式
+
+            list($stdout, $strerr)
+                = exec_file($this->envf);               // execute
 
             if($strerr) {
                 ftruncate($this->envfd, $pos);          // 执行失败退回文件指针
@@ -227,7 +211,9 @@ class Repl {
                 if($this->outaccu) {                    // 清除已输出内容后打印结果
                     $result = substr($stdout, strlen($this->outaccu));
                 }
-                echo $result . PHP_EOL;
+                if($result) {
+                    echo $result . PHP_EOL;
+                }
                 // $this->console->log($result . PHP_EOL);
                 $this->outaccu .= $result;              // 增量记录结果
             }
