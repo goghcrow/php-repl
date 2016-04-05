@@ -20,6 +20,7 @@ error_reporting(E_ALL);
  * TODO:
  * 1. 扩展支持其他op
  * 2. 扩展op支持参数
+ * 3. 环境的load与save
  */
 class Repl {
     const OP_IGNORE         = 0;        // 接受当前行输入，无操作
