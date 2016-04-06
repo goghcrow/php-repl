@@ -49,7 +49,6 @@ function endwith($line, $end) {
  * @param $code_file
  * @return array
  * @author xiaofeng
- *
  * @notice php需要加入环境变量
  * $code 与 $code_file 二选一
  */

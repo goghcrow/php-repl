@@ -1,6 +1,7 @@
 <?php
 /**
- * User: xiaofeng
+ * Created by PhpStorm.
+ * User: 乌鸦
  * Date: 2016/4/3
  * Time: 17:05
  */
@@ -21,10 +22,6 @@ class Console
     public function __construct($enablecolor =  true, $outtype = 2) {
         $this->enablecolor = $enablecolor;
         $this->outputtype = $outtype;
-    }
-
-    public function toggleColor() {
-        $this->enablecolor = !$this->enablecolor;
     }
 
     private function stringfy($data) {
