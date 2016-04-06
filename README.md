@@ -19,31 +19,33 @@ php> $x = 1;
 int(1)
 php> $y = 2;
 int(2)
-php> echo $x + $y;
-3
+php> $x + $y;
+int(3)
 php> function hello($name) {
    >     echo "hello ", $name;};
 php> echo hello("xiaofeng");
 hello xiaofeng
 ~~~
 
-暂时添加了这么多命令, 可自行扩展
+暂时添加了这么多命令
 ~~~
 php> :help
-:q				退出
-:exit			退出
-:help			帮助
-:cancel			取消当前片段
-:c 				取消当前片段
-:clearenv 		清楚当前环境
-:clear 			清屏
-:status			查看状态
-:debug 			调试 :debug::envf
+:help     help
+:q        quit
+:exit     alias for q
+:quit     alias for q
+:c        cancel state of input
+:cancel   alias for c
+:env      show env
+:cmd      show cmd
+:reset    clear env
+:clear    clear
+:status   show status
+:color    toggle color
 
 php> function() {
    > :c
 php> :clear
-php> :debug::envf
 php> :status
     emalloc memory            442KB 424Byte
     malloc memory             2MB
