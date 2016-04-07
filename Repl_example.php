@@ -2,8 +2,8 @@
 namespace xiaofeng\utils;
 use \xiaofeng\cli;
 require __DIR__ . "/Repl.php";
+error_reporting(E_ALL);
 
-// 如果需要颜色支持，window下需要安装ansicon
-$colorfy = isset($argv[1]) ? $argv[1] : false;
-$repl = new cli\Repl($colorfy);
+$repl = new cli\Repl(cli\Repl::EXEC_EVAL);
+// $repl = new cli\Repl(cli\Repl::EXEC_PROC);
 $repl->run();

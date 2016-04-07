@@ -6,9 +6,21 @@ use \xiaofeng\cli;
 require __DIR__ . "/Repl.php";
 
 // 如果需要颜色支持，window下需要安装ansicon
-$colorfy = isset($argv[1]) ? $argv[1] : false;
-$repl = new cli\Repl($colorfy);
+$repl = new cli\Repl(cli\Repl::EXEC_EVAL);
 $repl->run();
+
+提供了两种命令执行方式：
+~~~
+// eval执行命令，速度快，致命错误(Fatal error)，比如函数重定义会导致程序退出
+// repl中函数使用匿名的方式~
+cli\Repl::EXEC_EVAL
+
+
+// proc额外进程执行命令，速度慢，无eval问题
+cli\Repl::EXEC_PROC
+~~~
+
+
 ~~~
 
 命令以;结尾则执行
@@ -21,9 +33,9 @@ php> $y = 2;
 int(2)
 php> $x + $y;
 int(3)
-php> function hello($name) {
+php> $hello = function ($name) {
    >     echo "hello ", $name;};
-php> echo hello("xiaofeng");
+php> echo $hello("xiaofeng");
 hello xiaofeng
 ~~~
 

@@ -8,7 +8,6 @@
 namespace xiaofeng\cli;
 require_once __DIR__ . DIRECTORY_SEPARATOR . "cli.php";
 require_once __DIR__ . DIRECTORY_SEPARATOR . "Console.php";
-error_reporting(E_ALL);
 
 /**
  * Class Repl
@@ -23,13 +22,18 @@ error_reporting(E_ALL);
  * 3. 环境的load与save
  */
 class Repl {
-    const OP_IGNORE         = 0;        // 接受当前行输入，无操作
-    const OP_CONTINUE       = 1;        // 接受当前行输入，继续等待输入
-    const OP_BREAK          = 2;        // 接受当前行输入，执行命令
-    const OP_PASS           = 3;        // 忽略当前行
+    const OP_IGNORE         = 0;                // 接受当前行输入，无操作
+    const OP_CONTINUE       = 1;                // 接受当前行输入，继续等待输入
+    const OP_BREAK          = 2;                // 接受当前行输入，执行命令
+    const OP_PASS           = 3;                // 忽略当前行
+    const EXEC_PROC         = "xiaofeng\\cli\\exec_code";      // 额外进程执行命令,速度慢,稳定
+    const EXEC_EVAL         = "xiaofeng\\cli\\exec_eval";      // eval执行命令,速度快,错误可能导致程序退出
 
     public static $debug    = true;
 
+    private $is_runing      = false;
+    /* @var callable $exec_type */
+    private $exec_type;         // 命令执行方式
     private $console;           // 控制台输出
     private $hisf;              // 历史文件: 记录输入历史
     private $hisfd;             // 历史文件句柄
@@ -41,10 +45,14 @@ class Repl {
 
     private $op_array = [];     // 内置命令数组
 
-    public function __construct($colorfy = false) {
+    public function __construct($exec_type = self::EXEC_EVAL, $colorfy = false) {
         if(!is_cli()) {
             throw new \RuntimeException("Repl can only run in cli");
         }
+        if($exec_type !== self::EXEC_EVAL && $exec_type !== self::EXEC_PROC) {
+            throw new \InvalidArgumentException('$exec_type !== self::EXEC_EVAL || $exec_type !== self::EXEC_PROC');
+        }
+        $this->exec_type = $exec_type;
         $this->console = new Console($colorfy);
         $tip = ">>> XIAOFENG PHP REPL v0.1 <<<";
         $this->console->info(PHP_EOL . str_pad($tip, strlen($tip) + 90, " ", STR_PAD_BOTH) . PHP_EOL);
@@ -57,6 +65,13 @@ class Repl {
         $this->env_clear();
         $this->history_init();
         $this->register_internal_op();
+
+        register_shutdown_function(function() {
+            $error = error_get_last();
+            if($error) {
+                $this->console->error("Sorry! " . $error["message"]);
+            }
+        });
     }
 
     private function clear() {
@@ -78,27 +93,36 @@ class Repl {
         $this->op_register("color", [$this, "op_color"],    "toggle color");
     }
 
+    private function exec($code) {
+        return call_user_func($this->exec_type, $code);
+    }
+
+    // 打印无显式返回值命令
     private function evaluate_dump(array $env, $cmd) {
         array_unshift($env, "ob_start();");
         $env[] = "ob_end_clean();";
         $env[] = "var_dump(" . trim($cmd, "\t\n\r\0\x0b;") . ");";
-        list($cmdout, $cmderr) = exec_code(implode(PHP_EOL, $env));
+        list($cmdout, $cmderr) = $this->exec(implode(PHP_EOL, $env));
         if(!trim($cmderr) && trim($cmdout)) {
-            echo $cmdout;
+            echo rtrim($cmdout) . PHP_EOL;
         }
     }
 
     private function evaluate(array $env, $cmd) {
+        // 之前的代码wrapper缓存控制
         array_unshift($env, "ob_start();");
         $env[] = "ob_end_clean();";
+        // 解决命令echo输出无换行
+        $env[] = "ob_start();";
         $env[] = $cmd;
-        list($stdout, $strerr) = exec_code(implode(PHP_EOL, $env));
+        $env[] = '$_____=ob_get_clean();if(rtrim($_____)) echo rtrim($_____).PHP_EOL;';
+        list($stdout, $strerr) = $this->exec(implode(PHP_EOL, $env));
         if($strerr) {
             $this->console->error($strerr);
         } else {
             $this->env_push($cmd);
             if($stdout) {
-                echo $stdout . PHP_EOL;
+                echo rtrim($stdout) . PHP_EOL;
             }
         }
     }
@@ -174,13 +198,17 @@ class Repl {
      * @return mixed
      */
     protected function accept_command($line) {
+        if(trim($this->cmd) === ";") {
+            $this->cmd_clear();
+            return false;
+        }
         return endwith($line, ";");
     }
 
     public function run() {
         $this->init();
-
-        while(true) {
+        $this->is_runing = true;
+        while($this->is_runing) {
             if($this->cmd) {
                 $this->prompt = str_pad($this->console->log(">", true) . " ", strlen($this->prompt), " ", STR_PAD_LEFT);
             } else {
@@ -216,7 +244,7 @@ class Repl {
     }
 
     private function op_exit() {
-        // fixme 用 exit die 之类正则来结束, 否则把exit写入环境就bug了
+        //  self::EXEC_PROC方式得把exit die之类正则捕获,结束程序
         return self::OP_BREAK;
     }
 

@@ -88,12 +88,43 @@ function _execute($code, $code_file = null) {
     return [$stdout, $stderr];
 }
 
+/**
+ * fork执行php代码
+ * @param String $code
+ * @return array list($stdout, $stderr)
+ */
 function exec_code($code) {
     return _execute($code);
 }
 
+/**
+ * fork执行php文件代码
+ * @param String $php_file
+ * @return array list($stdout, $stderr)
+ */
 function exec_file($php_file) {
     return _execute(null, $php_file);
+}
+
+/**
+ * eval执行php代码
+ * 三种执行方式中速度最快~ 但是像重定义函数之类错误会导致程序退出
+ * @param $code
+ * @return array list($result, $error)
+ * @author xiaofeng
+ */
+function exec_eval($code) {
+    // echo "=== eval: ",PHP_EOL, $code,PHP_EOL, "===" . PHP_EOL;
+    try {
+        $result = @eval($code);
+        $err = error_get_last();
+        error_clear_last();
+        return [$result, $err ? $err["message"] . PHP_EOL : $err/* PHP5 */];
+    } catch(\Error $e) { // PHP7
+        return [null, $e->getMessage() . PHP_EOL];
+    } catch(\Exception $ex) {
+        return [null, $ex->getMessage() . PHP_EOL];
+    }
 }
 
 /**
@@ -192,4 +223,12 @@ function cost(callable $func = null, $n = 1) {
     echo str_pad("    emalloc peak memory", 30), $formatBytes(memory_get_peak_usage()), PHP_EOL;
     echo str_pad("    malloc peak memory", 30), $formatBytes(memory_get_peak_usage(true)), PHP_EOL;
 	echo str_repeat("=", 60), PHP_EOL;
+}
+
+// @http://stackoverflow.com/questions/834303/startswith-and-endswith-functions-in-php
+function startsWith($haystack, $needle) {
+    return $needle === "" || strrpos($haystack, $needle, -strlen($haystack)) !== false;
+}
+function endsWith($haystack, $needle) {
+    return $needle === "" || (($temp = strlen($haystack) - strlen($needle)) >= 0 && strpos($haystack, $needle, $temp) !== false);
 }
