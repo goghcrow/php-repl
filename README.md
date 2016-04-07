@@ -8,20 +8,18 @@ require __DIR__ . "/Repl.php";
 // 如果需要颜色支持，window下需要安装ansicon
 $repl = new cli\Repl(cli\Repl::EXEC_EVAL);
 $repl->run();
+~~~
 
 提供了两种命令执行方式：
+
 ~~~
-// eval执行命令，速度快，致命错误(Fatal error)，比如函数重定义会导致程序退出
-// repl中函数使用匿名的方式~
 cli\Repl::EXEC_EVAL
-
-
-// proc额外进程执行命令，速度慢，无eval问题
 cli\Repl::EXEC_PROC
 ~~~
 
+1. eval执行命令，速度快，致命错误(Fatal error)，比如函数重定义会导致程序退出，so，请使用匿名函数
+2. proc额外进程执行命令，速度慢，无eval问题
 
-~~~
 
 命令以;结尾则执行
 ~~~
