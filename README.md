@@ -32,9 +32,9 @@ int(2)
 php> $x + $y;
 int(3)
 php> $hello = function ($name) {
-   >     echo "hello ", $name;};
-php> echo $hello("xiaofeng");
-hello xiaofeng
+   >     return "hello " . $name;};
+php> $hello("xiaofeng");
+string(14) "hello xiaofeng"
 ~~~
 
 暂时添加了这么多命令

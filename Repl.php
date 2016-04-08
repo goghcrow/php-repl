@@ -98,27 +98,37 @@ class Repl {
     }
 
     // 打印无显式返回值命令
-    private function evaluate_dump(array $env, $cmd) {
-        array_unshift($env, "ob_start();");
-        $env[] = "ob_end_clean();";
-        $env[] = "var_dump(" . trim($cmd, "\t\n\r\0\x0b;") . ");";
-        list($cmdout, $cmderr) = $this->exec(implode(PHP_EOL, $env));
+    private function pre_evaluate(array $env, $cmd) {
+        if($env) {
+            array_unshift($env, "error_reporting(E_ALL^E_NOTICE);ob_start();");
+            $env[] = "ob_end_clean();";
+        }
+        $code = <<<'CODE'
+ob_start();
+$__ret__ = {{cmd}}
+$__ob__=ob_get_clean();
+if(!$__ob__ && $__ret__) {
+    var_dump($__ret__);
+}
+CODE;
+        // $env[] = "var_dump(" . trim($cmd, "\t\n\r\0\x0b;") . ");";
+        list($cmdout, $cmderr) = $this->exec(implode(PHP_EOL, $env) . str_replace("{{cmd}}", $cmd, $code));
         if(!trim($cmderr) && trim($cmdout)) {
             echo rtrim($cmdout) . PHP_EOL;
         }
     }
 
     private function evaluate(array $env, $cmd) {
-        // 之前的代码wrapper缓存控制
-        array_unshift($env, "ob_start();");
-        $env[] = "ob_end_clean();";
-        // 解决命令echo输出无换行
+        if($env) {
+            array_unshift($env, "error_reporting(E_ALL^E_NOTICE);ob_start();");
+            $env[] = "ob_end_clean();";
+        }
         $env[] = "ob_start();";
         $env[] = $cmd;
         $env[] = '$_____=ob_get_clean();if(rtrim($_____)) echo rtrim($_____).PHP_EOL;';
-        list($stdout, $strerr) = $this->exec(implode(PHP_EOL, $env));
-        if($strerr) {
-            $this->console->error($strerr);
+        list($stdout, $stderr) = $this->exec(implode(PHP_EOL, $env));
+        if($stderr) {
+            $this->console->error($stderr);
         } else {
             $this->env_push($cmd);
             if($stdout) {
@@ -235,7 +245,7 @@ class Repl {
                 continue;                               // 直到遇到以分号结果的命令
             }                                           // 否则全部追加到command
 
-            $this->evaluate_dump($this->env, $this->cmd);
+            $this->pre_evaluate($this->env, $this->cmd);
             $this->evaluate($this->env, $this->cmd);
             $this->cmd_clear();
         }
