@@ -36,14 +36,6 @@ if(!function_exists("readline")) {
     }
 }
 
-function cmdcmp($cmd, $line) {
-    return 0 === strncasecmp($line, $cmd, max(strlen($cmd), strlen($line)));
-}
-
-function endwith($line, $end) {
-    return rtrim($end) === substr(rtrim($line), -strlen(rtrim($end)));
-}
-
 /**
  * @param $code
  * @param $code_file

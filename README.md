@@ -37,7 +37,12 @@ php> $hello("xiaofeng");
 string(14) "hello xiaofeng"
 ~~~
 
-暂时添加了这么多命令
+命令：
+
+1. 暂时添加了这么多命令
+2. 忽略大小写
+3. 格式 :cmd[:args]
+
 ~~~
 php> :help
 :help     help
@@ -46,9 +51,12 @@ php> :help
 :quit     alias for q
 :c        cancel state of input
 :cancel   alias for c
-:env      show env
 :cmd      show cmd
+:history  show history
+:env      show env
 :reset    clear env
+:save     save env :save:file
+:load     load env :load:file
 :clear    clear
 :status   show status
 :color    toggle color

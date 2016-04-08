@@ -13,25 +13,26 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . "Console.php";
  * Class Repl
  * @package xiaofeng\cli
  * @author xiaofeng
- * FIXME 加入各种f*函数的错误检测
+ *
  * 问题：
  * window无信号控制扩展，无法响应ctrl+c
+ *
  * TODO:
+ * 0. 加入各种f*函数的错误检测
  * 1. 扩展支持其他op
- * 2. 扩展op支持参数
- * 3. 环境的load与save
+ * 2. 支持处理复制粘贴的片段代码
+ * 3. 加入载入时环境合法性的验证
  */
 class Repl {
-    const OP_IGNORE         = 0;                // 接受当前行输入，无操作
-    const OP_CONTINUE       = 1;                // 接受当前行输入，继续等待输入
-    const OP_BREAK          = 2;                // 接受当前行输入，执行命令
-    const OP_PASS           = 3;                // 忽略当前行
+    const OP_BREAK          = 0;                // 退出REPL
+    const OP_IGNORE         = 1;                // 无操作
+    const OP_CONTINUE       = 2;                // 接受当前行输入，继续repl
+    const OP_PASS           = 3;                // 忽略当前行，继续repl
+    const OP_CLEAR          = 4;                // 清除当前命令，继续repl
+
     const EXEC_PROC         = "xiaofeng\\cli\\exec_code";      // 额外进程执行命令,速度慢,稳定
     const EXEC_EVAL         = "xiaofeng\\cli\\exec_eval";      // eval执行命令,速度快,错误可能导致程序退出
 
-    public static $debug    = true;
-
-    private $is_runing      = false;
     /* @var callable $exec_type */
     private $exec_type;         // 命令执行方式
     private $console;           // 控制台输出
@@ -82,15 +83,18 @@ class Repl {
     }
 
     private function register_internal_op() {
-        $this->op_register("help",  [$this, "op_help"]);
-        $this->op_register("q",     [$this, "op_exit"],     "quit", ["exit", "quit"]);
-        $this->op_register("c",     [$this, "op_cancel"],   "cancel state of input", "cancel");
-        $this->op_register("env",   [$this, "op_env"],      "show env");
-        $this->op_register("cmd",   [$this, "op_cmd"],      "show cmd");
-        $this->op_register("reset", [$this, "op_reset"],    "clear env");
-        $this->op_register("clear", [$this, "op_clear"],    "clear");
-        $this->op_register("status",[$this, "op_status"],   "show status");
-        $this->op_register("color", [$this, "op_color"],    "toggle color");
+        $this->op_register("help",   [$this, "op_help"]);
+        $this->op_register("q",      [$this, "op_exit"],     "quit", ["exit", "quit"]);
+        $this->op_register("c",      [$this, "op_cancel"],   "cancel state of input", "cancel");
+        $this->op_register("cmd",    [$this, "op_cmd"],      "show cmd");
+        $this->op_register("history",[$this, "op_history"],  "show history");
+        $this->op_register("env",    [$this, "op_env"],      "show env");
+        $this->op_register("reset",  [$this, "op_reset"],    "clear env");
+        $this->op_register("save",   [$this, "op_save"],     "save env :save:file");
+        $this->op_register("load",   [$this, "op_load"],     "load env :load:file");
+        $this->op_register("clear",  [$this, "op_clear"],    "clear");
+        $this->op_register("status", [$this, "op_status"],   "show status");
+        $this->op_register("color",  [$this, "op_color"],    "toggle color");
     }
 
     private function exec($code) {
@@ -111,7 +115,6 @@ if(!$__ob__ && $__ret__) {
     var_dump($__ret__);
 }
 CODE;
-        // $env[] = "var_dump(" . trim($cmd, "\t\n\r\0\x0b;") . ");";
         list($cmdout, $cmderr) = $this->exec(implode(PHP_EOL, $env) . str_replace("{{cmd}}", $cmd, $code));
         if(!trim($cmderr) && trim($cmdout)) {
             echo rtrim($cmdout) . PHP_EOL;
@@ -139,14 +142,26 @@ CODE;
 
     private function history_init() {
         $this->hisf = tempnam(sys_get_temp_dir(), "#php_repl_history");
-        if(self::$debug) {
-            $this->hisf = "#php_repl_history.php";
-        }
         $this->hisfd = fopen($this->hisf, "a");
     }
 
     private function env_clear() {
         $this->env = [];
+    }
+
+    private function env_save($file) {
+        return false !== file_put_contents($file, implode("…", $this->env));
+    }
+
+    private function env_load($file) {
+        if(!file_exists($file)) {
+            return false;
+        }
+        if($text = file_get_contents($file)) {
+            $this->env = explode("…", $text);
+            return true;
+        }
+        return false;
     }
 
     private function env_push($cmd) {
@@ -187,17 +202,35 @@ CODE;
     }
 
     private function history_push($line) {
-        $his = sprintf("%s # %s" . PHP_EOL, date("Y-m-d h:i:s"), $line);
-        fwrite($this->hisfd, $his);
+        fwrite($this->hisfd, $line . PHP_EOL);
     }
 
     private function op_execute($line) {
         foreach($this->op_array as $cmd => list($handler)) {
-            if(cmdcmp($cmd, $line)) {
-                return $handler($line);
+            if($this->matched_op($cmd, $line, $arg)) {
+                return $handler($arg);
             }
         }
         return self::OP_IGNORE;
+    }
+
+    /**
+     * 当前行是否匹配内置命令
+     * @param string $cmd
+     * @param string $line
+     * @param string $arg out
+     * @return bool
+     */
+    protected function matched_op($cmd, $line, &$arg = "") {
+        if(0 === strncasecmp($line, $cmd, max(strlen($cmd), strlen($line)))) {
+            return true;
+        }
+        $cmd = preg_quote($cmd);
+        if(preg_match("/^$cmd:(.*)/i", $line, $matches)) {
+            $arg = $matches[1];
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -208,17 +241,19 @@ CODE;
      * @return mixed
      */
     protected function accept_command($line) {
+        if(!$line) {
+            return false;
+        }
         if(trim($this->cmd) === ";") {
             $this->cmd_clear();
             return false;
         }
-        return endwith($line, ";");
+        return ";" === substr(rtrim($line), -1);
     }
 
     public function run() {
         $this->init();
-        $this->is_runing = true;
-        while($this->is_runing) {
+        while(true) {
             if($this->cmd) {
                 $this->prompt = str_pad($this->console->log(">", true) . " ", strlen($this->prompt), " ", STR_PAD_LEFT);
             } else {
@@ -230,14 +265,17 @@ CODE;
             $this->cmd_push($line);                     // 追加到命令
 
             switch($this->op_execute($line)) {          // 检测执行内置命令
-                case self::OP_BREAK:                    // 接受当前行输入，执行命令
+                case self::OP_BREAK:                    // 退出REPL
                     break 2;
-                case self::OP_CONTINUE;                 // 接受当前行输入，继续等待输入
-                    continue 2;
-                case self::OP_PASS:                     // 忽略当前行
+                case self::OP_CONTINUE;                 // 接受当前行输入，继续repl
+                    break;
+                case self::OP_PASS:                     // 忽略当前行, 继续repl
                     $this->cmd_pop($line);
                     break;
-                case self::OP_IGNORE:                   // 接受当前行输入，无操作
+                case self::OP_CLEAR:
+                    $this->cmd_clear();                 // 清除当前命令，继续repl
+                    continue 2;
+                case self::OP_IGNORE:                   // 无操作
                     break;
             }
 
@@ -262,33 +300,56 @@ CODE;
         foreach($this->op_array as $cmd => list(, $desc)) {
             echo str_pad($cmd, 10, " ", STR_PAD_RIGHT), $desc, PHP_EOL;
         }
-        return self::OP_PASS;
+        return self::OP_CLEAR;
     }
 
     private function op_reset() {
         $this->env_clear();
         $this->cmd_clear();
-        return self::OP_CONTINUE;
+        return self::OP_CLEAR;
+    }
+
+    private function op_save($arg) {
+        if(!$this->env_save($arg)) {
+            $this->console->error(rtrim("Save fail: $arg") . PHP_EOL);
+        }
+        return self::OP_CLEAR;
+    }
+
+    private function op_load($arg) {
+        if(!$this->env_load($arg)) {
+            $this->console->error(rtrim("Load Fail: $arg") . PHP_EOL);
+        }
+        return self::OP_CLEAR;
     }
 
     private function op_cancel() {
         $this->cmd_clear();
-        return self::OP_CONTINUE;
+        return self::OP_CLEAR;
     }
 
     private function op_status() {
         cost();
-        return self::OP_PASS;
+        return self::OP_CLEAR;
     }
 
     private function op_clear() {
         clear();
-        return self::OP_PASS;
+        return self::OP_CLEAR;
     }
 
     private function op_cmd() {
         echo $this->cmd, PHP_EOL;
-        return self::OP_PASS;
+        return self::OP_CLEAR;
+    }
+
+    private function op_history() {
+        foreach(new \SplFileObject($this->hisf) as $i => $line) {
+            $this->console->info($i + 1);
+            echo str_repeat(" ", max(0, 5 - strlen($i))), $line;
+        }
+        echo PHP_EOL;
+        return self::OP_CLEAR;
     }
 
     private function op_env() {
@@ -299,11 +360,11 @@ CODE;
                 echo str_replace(PHP_EOL, " ", $code), PHP_EOL;
             }
         }
-        return self::OP_PASS;
+        return self::OP_CLEAR;
     }
 
     private function op_color() {
         $this->console->toggleColor();
-        return self::OP_PASS;
+        return self::OP_CLEAR;
     }
 }
