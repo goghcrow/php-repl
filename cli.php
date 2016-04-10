@@ -1,6 +1,11 @@
 <?php
 namespace xiaofeng\cli;
+require_once __DIR__ . DIRECTORY_SEPARATOR . "error.php";
 error_reporting(E_ALL);
+
+const STD_IN = 0;
+const STD_OUT = 1;
+const STD_ERR = 2;
 
 /**
  * @return int
@@ -11,7 +16,8 @@ function is_cli() {
 }
 
 function is_win() {
-    return PHP_OS === "WINNT";
+    // return PHP_OS === "WINNT";
+    return strtoupper(substr(PHP_OS, 0, 3)) === "WIN";
 }
 
 function tasklist() {
@@ -29,12 +35,19 @@ function clear() {
     }
 }
 
+function assert_func_exists($f) {
+    if(!function_exists($f)) {
+        throw new \RuntimeException("function $f does`t exists");
+    }
+}
+
 if(!function_exists("readline")) {
     function readline($prompt = "") {
         echo $prompt;
         return stream_get_line(STDIN, 1024, PHP_EOL);
     }
 }
+
 
 /**
  * @param $code
@@ -44,32 +57,36 @@ if(!function_exists("readline")) {
  *
  * @notice php需要加入环境变量
  * $code 与 $code_file 二选一
+ * 检索源码发现php中运行外部程序的函数,实际上都是使用了popen函数
+ * http://lxr.php.net/xref/PHP_7_0/ext/standard/exec.h
+ * http://xiezhenye.com/2012/09/php-中运行外部程序的一个潜在风险.html
+ * 利用vfork 来启动一个shell子进程来执行命令。
+ * http://coolshell.cn/articles/12103.html
+ * 但是popen并没有在子进程中关闭原有的进程的文件描述符。
+ * 这样子进程也会占有这些文件描述符，即使它们并不需要，如果子进程长时间运行，还会导致这些资源没法释放
+ * so 最终采取proc_open方式定制执行
+ * http://php.net/manual/zh/function.proc-open.php
+ *
+ * "bypass_shell" in Windows allows you to pass a command of length around ~32767 characters.
+ * If you do not use it, your limit is around ~8191 characters only.
+ * See https://support.microsoft.com/en-us/kb/830473.
  */
 function _execute($code, $code_file = null) {
-    // 检索源码发现php中运行外部程序的函数,实际上都是使用了popen函数
-    // http://lxr.php.net/xref/PHP_7_0/ext/standard/exec.h
-    // http://xiezhenye.com/2012/09/php-中运行外部程序的一个潜在风险.html
-    // 利用vfork 来启动一个shell子进程来执行命令。
-    // http://coolshell.cn/articles/12103.html
-    // 但是popen并没有在子进程中关闭原有的进程的文件描述符。
-    // 这样子进程也会占有这些文件描述符，即使它们并不需要，如果子进程长时间运行，还会导致这些资源没法释放
-    // so 最终采取proc_open方式定制执行
-    // http://php.net/manual/zh/function.proc-open.php
-    $descriptorspec  = [
-        /*stdin*/    0 => ["pipe", "r"],
-        /*stdout*/   1 => ["pipe", "w"],
-        /*stderr*/   2 => ["pipe", "w"],
+    assert_func_exists("proc_open");
+    $fdSpec  = [
+        STD_IN  => ["pipe", "r"],
+        STD_OUT => ["pipe", "w"],
+        STD_ERR => ["pipe", "w"],
         /*others .... */
     ];
-    // "bypass_shell" in Windows allows you to pass a command of length around ~32767 characters.
-    // If you do not use it, your limit is around ~8191 characters only.
-    // See https://support.microsoft.com/en-us/kb/830473.
-    $other_options = ["suppress_errors" => true, /*"bypass_shell" => true,*/];
+    $other_options = ["suppress_errors" => true, "bypass_shell" => true];
     $cmd = (!$code && $code_file) ? "php {$code_file}" : "php";
-    $evalProcess = proc_open($cmd, $descriptorspec, $pipes, null, null, $other_options);
+
+    $evalProcess = proc_open($cmd, $fdSpec, $pipes, null, null, $other_options);
     if($code) {
         fwrite($pipes[0], "<?php " . $code);
     }
+
     $stdout = stream_get_contents($pipes[1]);
     $stderr = stream_get_contents($pipes[2]);
     // 必须先关闭pipe再关闭子进程
@@ -77,7 +94,7 @@ function _execute($code, $code_file = null) {
         fclose($pipe);
     }
     proc_close($evalProcess);
-    return [$stdout, $stderr];
+    return [$stdout, rtrim($stderr, PHP_EOL)];
 }
 
 /**
@@ -109,9 +126,8 @@ function exec_eval($code) {
     // echo "=== eval: ",PHP_EOL, $code,PHP_EOL, "===" . PHP_EOL;
     try {
         $result = @eval($code);
-        $err = error_get_last();
-        error_clear_last();
-        return [$result, $err ? $err["message"] . PHP_EOL : $err/* PHP5 */];
+        $err = error_get_last_msg(true); // auto clear
+        return [$result, $err ? $err . PHP_EOL : $err/* PHP5 */];
     } catch(\Error $e) { // PHP7
         return [null, $e->getMessage() . PHP_EOL];
     } catch(\Exception $ex) {

@@ -70,7 +70,7 @@ class Repl {
         register_shutdown_function(function() {
             $error = error_get_last();
             if($error) {
-                $this->console->error("Sorry! " . $error["message"]);
+                $this->console->error("Bye! " . $error["message"] . PHP_EOL);
             }
         });
     }
@@ -130,7 +130,7 @@ CODE;
         $env[] = $cmd;
         $env[] = '$_____=ob_get_clean();if(rtrim($_____)) echo rtrim($_____).PHP_EOL;';
         list($stdout, $stderr) = $this->exec(implode(PHP_EOL, $env));
-        if($stderr) {
+        if(rtrim($stderr, PHP_EOL)) {
             $this->console->error($stderr);
         } else {
             $this->env_push($cmd);
