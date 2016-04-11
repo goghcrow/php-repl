@@ -23,16 +23,25 @@ while($i < 10){
     $i++;
 }
 
-// echo "future1 pid $future1->pid() \n";
-
-// 自杀
-/* @var _Future $f */
+/* @var Future $f */
 $f = $futures[1];
 $f->cancel();
-$w->wait_all();
+
+/* @var Future $f1 */
+$f1 = $futures[3];
+$f1->worker()->suicide();
+
+$fret = $w->task(function() {
+    sleep(2);
+    return str_repeat("=", 10000) . "\n";
+});
+
+echo $fret->get();
+
+$w->wait();
 
 
-/* @var $f _Future */
+/* @var $f Future */
 foreach($futures as $f) {
     $pid = $f->pid();
     log("[$pid]finished: " . $f->get());

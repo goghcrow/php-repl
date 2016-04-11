@@ -22,17 +22,18 @@ class Fork
         $this->ppid = posix_getpid();
     }
 
-    private function add_worker($pid, _Worker $worker) {
+    private function add_worker($pid, Worker $worker) {
         if(isset($this->workers[$pid])) {
             return;
         }
+        $worker->is_child = false;
         $worker->is_alive = true;
         $worker->pid = $pid;
         $this->workers[$pid] = $worker;
     }
 
     public function worker_status() {
-        /* @var _Worker $worker */
+        /* @var Worker $worker */
         foreach($this->workers as $pid => $worker) {
             $is_alive = $worker->is_alive ? "active" : "stop";
             log("[$worker->pid]::$is_alive:$worker->desc");
@@ -41,7 +42,7 @@ class Fork
 
     public function kill($pid = -1, $signo = SIGTERM) {
         if($pid === -1) {
-            /* @var _Worker $worker */
+            /* @var Worker $worker */
             foreach($this->workers as $pid => $worker) {
                 if($worker->is_alive) {
                     if(posix_kill($pid, $signo)) {
@@ -63,11 +64,11 @@ class Fork
     }
 
     // block
-    private function _wait($pid, $timeout = 0) {
+    private function _wait($pid) {
         if(!isset($this->workers[$pid])) {
             return false;
         }
-        /* @var _Worker $worker */
+        /* @var Worker $worker */
         $worker = $this->workers[$pid];
         $desc = "";
         // !!!block
@@ -94,10 +95,10 @@ class Fork
         return $return;
     }
 
-    public function wait_all($pid = -1 ) {
+    public function wait($pid = -1 ) {
         if($pid === -1) {
             foreach($this->workers as $pid => $_) {
-                $this->wait_all($pid);
+                $this->wait($pid);
             }
             return true;
         } else if(isset($this->workers[$pid])) {
@@ -117,10 +118,11 @@ class Fork
         }
 
         list($to_parent, $to_child) = $fd;
-        $worker = new _Worker($this, $this->ppid);
+        $worker = new Worker($this, $this->ppid);
         if($pid === 0) {
             // child
             socket_close($to_child);
+            $worker->is_child = true;
             $worker->socket = $to_parent;
             $worker->run($task);
             return null;
@@ -129,14 +131,15 @@ class Fork
             socket_close($to_parent);
             $worker->socket = $to_child;
             $this->add_worker($pid, $worker);
-            return new _Future($this, $to_child, $pid);
+            return new Future($this, $worker, $to_child, $pid);
         }
     }
 }
 
 // child exec & parent exec
-class _Worker
+class Worker
 {
+    public $is_child;
     public $ppid; // parent process id
     public $pid; // process id
     public $socket; // parent指向socket_to_child, child指向socket_to_parent
@@ -154,19 +157,29 @@ class _Worker
 
     // child exec
     protected function init() {
+        if(!$this->is_child) {
+            return;
+        }
         $this->is_alive = true;
         $this->pid = posix_getpid();
     }
 
-    // parent exec
-    public function suicide() {
-        return $this->fork->kill($this->pid);
+    public function suicide($code = 0) {
+        if($this->is_child) {
+            exit($code);
+        } else {
+            return $this->fork->kill($this->pid);
+        }
     }
 
+    // child exec
     public function run(callable $f) {
+        if(!$this->is_child) {
+            return;
+        }
         $this->init();
         try {
-            $result = $f();
+            $result = $f($this);
             write_pkg($this->socket, $result);
             exit(0);
         } catch(\Exception $e) {
@@ -177,19 +190,29 @@ class _Worker
 }
 
 // parent exec
-class _Future
+class Future
 {
     private $pid;
     private $socket;
     /* @var $fork Fork */
     private $fork;
+    /* @var $worker Worker*/
+    private $worker;
 
     public function pid() {
         return $this->pid;
     }
 
-    public function __construct($fork, $socket, $pid) {
+    /**
+     * @return Worker
+     */
+    public function worker() {
+        return $this->worker;
+    }
+
+    public function __construct($fork, $worker, $socket, $pid) {
         $this->fork = $fork;
+        $this->worker = $worker;
         $this->socket = $socket;
         $this->pid = $pid;
     }
@@ -198,19 +221,12 @@ class _Future
         return $this->fork->kill($this->pid);
     }
 
-    public function compose() {
-
-    }
-
-    public function combine() {
-
+    public function combine(Future $another, callable $combiner) {
+        return $combiner($this->get(), $another->get());
     }
 
     // block
-    public function get($timeout = 0) {
-        // pcntl_wifexited
-        // todo timeout
-        // todo  unserialize valid
+    public function get() {
         try {
             return read_pkg($this->socket);
         } catch (\Exception $e) {
@@ -242,7 +258,7 @@ function _read_size($socket, $size) {
     $buffer = "";
     do {
         // http://php.net/manual/en/function.socket-read.php
-        $rec = socket_read($socket, $size - strlen($buffer), PHP_BINARY_READ);
+        $rec = @socket_read($socket, $size - strlen($buffer), PHP_BINARY_READ);
         if($rec === false) {
             throw new \RuntimeException("socket_read failed. Reason: "  . socket_strerror(socket_last_error()));
         }
