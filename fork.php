@@ -137,37 +137,75 @@ class Fork
     private function add_worker($pid, $fd) {
         $this->workers[$pid] = [
             "socket" => $fd,
+            "is_alive" => true,
         ];
     }
 
-    private function log($msg) {
-        log("[{$this->ppid}] => $msg");
+    public function kill($pid = -1, $signo = SIGTERM) {
+        if($pid === -1) {
+            foreach($this->workers as $pid => $worker) {
+                posix_kill($pid, $signo);
+            }
+        } else if(isset($this->workers[$pid])) {
+            if(posix_kill($pid, $signo)) {
+                $this->workers[$pid]["is_alive"] = false;
+                return true;
+            }
+            return false;
+        }
+        return false;
     }
 
     public function run() {
-        $this->log("Start ...");
+        log(microtime(true));
 
-        $task = function() {
+        $future1 = $this->task(function() {
             sleep(2);
             return microtime(true);
-        };
+        });
 
-        $future1 = $this->task($task);
-        $future2 = $this->task($task);
+        $future2 = $this->task(function() {
+            sleep(10000);
+            return microtime(true);
+        });
         $future3 = $this->task(function() {
             exit(-1);
         });
+
+        echo "future1 pid $future1->pid \n";
+        echo "future2 pid $future2->pid \n";
+        echo "future3 pid $future3->pid \n";
+
+        // 自杀
+        $future2->suicide();
 
         var_dump($future1->get());
         var_dump($future2->get());
         var_dump($future3->get());
 
+        foreach($this->workers as $pid => $worker) {
+            // block
+            pcntl_waitpid($pid, $status);
+            switch(true) {
+                case pcntl_wifexited($status): // 是否正常退出
+                    $return_code = pcntl_wexitstatus($status);
+                    echo "[$pid]exited: $return_code\n";
+                    break;
+                case pcntl_wifstopped($status): // [信号]是否已经停止
+                    $signal = pcntl_wstopsig($status);
+                    echo "[$pid]stopped: $signal\n";
+                    break;
+                case pcntl_wifsignaled($status): // [信号]是否由于某个信号中断
+                    $signal = pcntl_wtermsig($status);
+                    echo "[$pid]signaled: $signal\n";
+                    break;
+                default:
+                    // todo
+                    break;
+            }
+            $this->workers[$pid]["is_alive"] = false;
+        }
 
-        // fixme
-//        posix_kill();
-//        $child_pid = pcntl_wait($status, WUNTRACED);
-//        if(pcntl_wifexited($status)) {
-//        }
     }
 
     protected function task(callable $task) {
@@ -182,20 +220,24 @@ class Fork
 
         list($to_parent, $to_child) = $fd;
         if($pid === 0) {
+            // child
             socket_close($to_child);
-            $worker = new Worker($to_parent, $this->ppid);
+            $worker = new _Worker($to_parent, $this->ppid);
             $worker->run($task);
+            return null;
         } else {
+            // parent
             socket_close($to_parent);
             $this->add_worker($pid, $to_child);
+            return new _Future($this, $to_child, $pid);
         }
-        return new Future($to_child, $pid);
     }
 }
 
-class Worker
+// child exec
+class _Worker
 {
-    private $pid;
+    public $pid;
     private $socket;
 
     public function __construct($socket) {
@@ -219,14 +261,22 @@ class Worker
     }
 }
 
-class Future
+// parent exec
+class _Future
 {
-    private $pid;
+    public $pid;
     private $socket;
+    /* @var $fork Fork */
+    private $fork;
 
-    public function __construct($socket, $pid) {
+    public function __construct($fork, $socket, $pid) {
+        $this->fork = $fork;
         $this->socket = $socket;
         $this->pid = $pid;
+    }
+
+    public function suicide() {
+        return $this->fork->kill($this->pid);
     }
 
     public function compose() {
