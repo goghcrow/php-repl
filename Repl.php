@@ -248,7 +248,7 @@ CODE;
             $this->cmd_clear();
             return false;
         }
-        return ";" === substr(rtrim($line), -1);
+        return in_array(substr(rtrim($line), -1), [";", "}"], true);
     }
 
     public function run() {
