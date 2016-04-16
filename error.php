@@ -24,7 +24,6 @@ function error_get_last_msg($simple = false) {
     } else {
         return "";
     }
-
 }
 
 // 清除错误测试

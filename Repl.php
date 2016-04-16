@@ -172,6 +172,10 @@ CODE;
         $this->cmd = "";
     }
 
+    private function cmd_fix() {
+        $this->cmd = rtrim($this->cmd, " \t\n\r\0\x0B;") . ";";
+    }
+
     private function cmd_push($line) {
         $this->cmd .= $line . PHP_EOL;
     }
@@ -240,15 +244,28 @@ CODE;
      * @param $line
      * @return mixed
      */
-    protected function accept_command($line) {
-        if(!$line) {
+    protected function accept_command($line, $cmd) {
+        if(!$line || !$cmd) {
             return false;
         }
-        if(trim($this->cmd) === ";") {
+        if(trim($cmd) === ";") {
             $this->cmd_clear();
             return false;
         }
-        return in_array(substr(rtrim($line), -1), [";", "}"], true);
+
+        $syntax_right = syntax_right($cmd);
+        // 语法正确则，补全分号，接受
+        if($syntax_right) {
+            $this->cmd_fix();
+            return true;
+        }
+        /*
+        // 语法错误，则遇到结束字符结束，执行过程会提示具体错误原因
+        $end_mark = [";", "}"];
+        return in_array(substr(rtrim($line), -1), $end_mark, true);
+        */
+        // 语法错误，输入:c手动结束~
+        return false;
     }
 
     public function run() {
@@ -279,7 +296,8 @@ CODE;
                     break;
             }
 
-            if(!$this->accept_command($line)) {         // 是否接受当前语句
+            if(!$this->accept_command($line, $this->cmd)) {
+                                                        // 是否接受当前语句
                 continue;                               // 直到遇到以分号结果的命令
             }                                           // 否则全部追加到command
 

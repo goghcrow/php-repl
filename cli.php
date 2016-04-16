@@ -127,12 +127,18 @@ function exec_eval($code) {
     try {
         $result = @eval($code);
         $err = error_get_last_msg(true); // auto clear
-        return [$result, $err ? $err . PHP_EOL : $err/* PHP5 */];
+        return [$result, $err ? $err . PHP_EOL : null/* PHP5 */];
     } catch(\Error $e) { // PHP7
         return [null, $e->getMessage() . PHP_EOL];
     } catch(\Exception $ex) {
         return [null, $ex->getMessage() . PHP_EOL];
     }
+}
+
+function syntax_right($code) {
+    $code = rtrim($code, " \t\n\r\0\x0B;") . ";";
+    list(, $e) = exec_eval("if(0) { $code }");
+    return $e === null;
 }
 
 /**
