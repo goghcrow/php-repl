@@ -135,9 +135,17 @@ function exec_eval($code) {
     }
 }
 
+/**
+ * 检查语法是否正确
+ * eval 版本 php -l
+ * @param $code
+ * @return bool
+ */
 function syntax_right($code) {
     $code = rtrim($code, " \t\n\r\0\x0B;") . ";";
-    list(, $e) = exec_eval("if(0) { $code }");
+    // sandbox
+    // fixme 匹配括号，防止注入~~
+    list(, $e) = exec_eval("if(false) { $code }");
     return $e === null;
 }
 
@@ -237,12 +245,4 @@ function cost(callable $func = null, $n = 1) {
     echo str_pad("    emalloc peak memory", 30), $formatBytes(memory_get_peak_usage()), PHP_EOL;
     echo str_pad("    malloc peak memory", 30), $formatBytes(memory_get_peak_usage(true)), PHP_EOL;
 	echo str_repeat("=", 60), PHP_EOL;
-}
-
-// @http://stackoverflow.com/questions/834303/startswith-and-endswith-functions-in-php
-function startsWith($haystack, $needle) {
-    return $needle === "" || strrpos($haystack, $needle, -strlen($haystack)) !== false;
-}
-function endsWith($haystack, $needle) {
-    return $needle === "" || (($temp = strlen($haystack) - strlen($needle)) >= 0 && strpos($haystack, $needle, $temp) !== false);
 }
